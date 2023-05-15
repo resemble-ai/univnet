@@ -1,7 +1,8 @@
 import random
 import subprocess
 import numpy as np
-from scipy.io.wavfile import read
+# from scipy.io.wavfile import read
+import librosa
 
 
 def get_commit_hash():
@@ -9,7 +10,7 @@ def get_commit_hash():
     return message.strip().decode('utf-8')
 
 def read_wav_np(path):
-    sr, wav = read(path)
+    wav, sr = librosa.load(path, sr=None, mono=True)
 
     if len(wav.shape) == 2:
         wav = wav[:, 0]

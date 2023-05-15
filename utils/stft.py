@@ -20,21 +20,15 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import math
-import os
-import random
 import torch
 import torch.utils.data
-import numpy as np
-from librosa.util import normalize
-from scipy.io.wavfile import read
 from librosa.filters import mel as librosa_mel_fn
 
 
 class TacotronSTFT(torch.nn.Module):
     def __init__(self, filter_length=1024, hop_length=256, win_length=1024,
                  n_mel_channels=80, sampling_rate=22050, mel_fmin=0.0,
-                 mel_fmax=None, center=False, device='cpu'):
+                 mel_fmax=None, center=False):
         super(TacotronSTFT, self).__init__()
         self.n_mel_channels = n_mel_channels
         self.sampling_rate = sampling_rate
@@ -46,10 +40,10 @@ class TacotronSTFT(torch.nn.Module):
         self.center = center
 
         mel = librosa_mel_fn(
-            sampling_rate, filter_length, n_mel_channels, mel_fmin, mel_fmax)
+            sr=sampling_rate, n_fft=filter_length, n_mels=n_mel_channels, fmin=mel_fmin, fmax=mel_fmax)
 
-        mel_basis = torch.from_numpy(mel).float().to(device)
-        hann_window = torch.hann_window(win_length).to(device)
+        mel_basis = torch.from_numpy(mel).float()
+        hann_window = torch.hann_window(win_length)
 
         self.register_buffer('mel_basis', mel_basis)
         self.register_buffer('hann_window', hann_window)
@@ -63,7 +57,7 @@ class TacotronSTFT(torch.nn.Module):
                                     mode='reflect')
         y = y.squeeze(1)
         spec = torch.stft(y, self.n_fft, hop_length=self.hop_size, win_length=self.win_size, window=self.hann_window,
-                          center=self.center, pad_mode='reflect', normalized=False, onesided=True)
+                          center=self.center, pad_mode='reflect', normalized=False, onesided=True, return_complex=False)
         spec = torch.norm(spec, p=2, dim=-1)
 
         return spec
@@ -87,7 +81,7 @@ class TacotronSTFT(torch.nn.Module):
         y = y.squeeze(1)
 
         spec = torch.stft(y, self.n_fft, hop_length=self.hop_size, win_length=self.win_size, window=self.hann_window,
-                          center=self.center, pad_mode='reflect', normalized=False, onesided=True)
+                          center=self.center, pad_mode='reflect', normalized=False, onesided=True, return_complex=False)
 
         spec = torch.sqrt(spec.pow(2).sum(-1) + (1e-9))
 

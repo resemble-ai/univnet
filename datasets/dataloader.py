@@ -1,29 +1,30 @@
 import os
-import glob
 import torch
 import random
+import _pickle
 import numpy as np
-from torch.utils.data import DistributedSampler, DataLoader, Dataset
+from pathlib import Path
+from torch.utils.data import DataLoader, Dataset
 from collections import Counter
 
 from utils.utils import read_wav_np
 from utils.stft import TacotronSTFT
 
 
-def create_dataloader(hp, args, train, device):
+def create_dataloader(hp, args, train):
     if train:
-        dataset = MelFromDisk(hp, hp.data.train_dir, hp.data.train_meta, args, train, device)
+        dataset = MelFromDisk(hp, hp.data.train_dir, hp.data.train_meta, args, train)
         return DataLoader(dataset=dataset, batch_size=hp.train.batch_size, shuffle=False,
                           num_workers=hp.train.num_workers, pin_memory=True, drop_last=True)
 
     else:
-        dataset = MelFromDisk(hp, hp.data.val_dir, hp.data.val_meta, args, train, device)
+        dataset = MelFromDisk(hp, hp.data.val_dir, hp.data.val_meta, args, train)
         return DataLoader(dataset=dataset, batch_size=1, shuffle=False,
             num_workers=hp.train.num_workers, pin_memory=True, drop_last=False)
 
 
 class MelFromDisk(Dataset):
-    def __init__(self, hp, data_dir, metadata_path, args, train, device):
+    def __init__(self, hp, data_dir, metadata_path, args, train):
         random.seed(hp.train.seed)
         self.hp = hp
         self.args = args
@@ -33,7 +34,7 @@ class MelFromDisk(Dataset):
         self.meta = self.load_metadata(metadata_path)
         self.stft = TacotronSTFT(hp.audio.filter_length, hp.audio.hop_length, hp.audio.win_length,
                                  hp.audio.n_mel_channels, hp.audio.sampling_rate,
-                                 hp.audio.mel_fmin, hp.audio.mel_fmax, center=False, device=device)
+                                 hp.audio.mel_fmin, hp.audio.mel_fmax, center=False).cpu()
 
         self.mel_segment_length = hp.audio.segment_length // hp.audio.hop_length
         self.shuffle = hp.train.spk_balanced
@@ -90,14 +91,17 @@ class MelFromDisk(Dataset):
         return mel, audio
 
     def get_mel(self, wavpath):
-        melpath = wavpath.replace('.wav', '.mel')
+        melpath = Path(wavpath).with_suffix('.mel')
         try:
             mel = torch.load(melpath, map_location='cpu')
             assert mel.size(0) == self.hp.audio.n_mel_channels, \
                 'Mel dimension mismatch: expected %d, got %d' % \
                 (self.hp.audio.n_mel_channels, mel.size(0))
 
-        except (FileNotFoundError, RuntimeError, TypeError, AssertionError):
+        except KeyboardInterrupt as kbi:
+            raise kbi
+
+        except Exception:
             sr, wav = read_wav_np(wavpath)
             assert sr == self.hp.audio.sampling_rate, \
                 'sample mismatch: expected %d, got %d at %s' % (self.hp.audio.sampling_rate, sr, wavpath)
@@ -106,7 +110,7 @@ class MelFromDisk(Dataset):
                 wav = np.pad(wav, (0, self.hp.audio.segment_length + self.hp.audio.pad_short - len(wav)), \
                              mode='constant', constant_values=0.0)
 
-            wav = torch.from_numpy(wav).unsqueeze(0)
+            wav = torch.from_numpy(wav).unsqueeze(0).cpu()
             mel = self.stft.mel_spectrogram(wav)
 
             mel = mel.squeeze(0)
@@ -121,5 +125,4 @@ class MelFromDisk(Dataset):
             for line in f:
                 stripped = line.strip().split(split)
                 metadata.append(stripped)
-
         return metadata

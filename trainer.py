@@ -1,14 +1,7 @@
-import os
-import time
-import logging
 import argparse
 import torch
-import torch.multiprocessing as mp
 from omegaconf import OmegaConf
-
 from utils.train import train
-
-torch.backends.cudnn.benchmark = True
 
 
 if __name__ == '__main__':
@@ -28,17 +21,6 @@ if __name__ == '__main__':
     assert hp.audio.hop_length == 256, \
         'hp.audio.hop_length must be equal to 256, got %d' % hp.audio.hop_length
 
-    args.num_gpus = 0
     torch.manual_seed(hp.train.seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed(hp.train.seed)
-        args.num_gpus = torch.cuda.device_count()
-        print('Batch size per GPU :', hp.train.batch_size)
-    else:
-        pass
-
-    if args.num_gpus > 1:
-        mp.spawn(train, nprocs=args.num_gpus,
-                 args=(args, args.checkpoint_path, hp, hp_str,))
-    else:
-        train(0, args, args.checkpoint_path, hp, hp_str)
+    torch.cuda.manual_seed(hp.train.seed)
+    train(args, args.checkpoint_path, hp, hp_str)

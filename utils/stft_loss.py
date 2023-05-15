@@ -20,7 +20,7 @@ def stft(x, fft_size, hop_size, win_length, window):
     Returns:
         Tensor: Magnitude spectrogram (B, #frames, fft_size // 2 + 1).
     """
-    x_stft = torch.stft(x, fft_size, hop_size, win_length, window)
+    x_stft = torch.stft(x, fft_size, hop_size, win_length, window, return_complex=False)
     real = x_stft[..., 0]
     imag = x_stft[..., 1]
 
@@ -67,13 +67,13 @@ class LogSTFTMagnitudeLoss(torch.nn.Module):
 class STFTLoss(torch.nn.Module):
     """STFT loss module."""
 
-    def __init__(self, device, fft_size=1024, shift_size=120, win_length=600, window="hann_window"):
+    def __init__(self, fft_size=1024, shift_size=120, win_length=600, window="hann_window"):
         """Initialize STFT loss module."""
         super(STFTLoss, self).__init__()
         self.fft_size = fft_size
         self.shift_size = shift_size
         self.win_length = win_length
-        self.window = getattr(torch, window)(win_length).to(device)
+        self.register_buffer("window", getattr(torch, window)(win_length))
         self.spectral_convergenge_loss = SpectralConvergengeLoss()
         self.log_stft_magnitude_loss = LogSTFTMagnitudeLoss()
 
@@ -98,7 +98,6 @@ class MultiResolutionSTFTLoss(torch.nn.Module):
     """Multi resolution STFT loss module."""
 
     def __init__(self,
-                 device,
                  resolutions,
                  window="hann_window"):
         """Initialize Multi resolution STFT loss module.
@@ -109,7 +108,7 @@ class MultiResolutionSTFTLoss(torch.nn.Module):
         super(MultiResolutionSTFTLoss, self).__init__()
         self.stft_losses = torch.nn.ModuleList()
         for fs, ss, wl in resolutions:
-            self.stft_losses += [STFTLoss(device, fs, ss, wl, window)]
+            self.stft_losses += [STFTLoss(fs, ss, wl, window)]
 
     def forward(self, x, y):
         """Calculate forward propagation.
