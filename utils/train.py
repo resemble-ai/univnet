@@ -157,11 +157,10 @@ def train(args, chkpt_path, hp, hp_str):
             loss_g = score_loss + stft_loss + aux_loss
 
             # LR schedule
-            if 500_000 < step <= 1_000_000:
-                r = (step - 500_000) / 500_000
-                lr = 1e-4 * r + 1e-5 * (1 - r)
-                for g in optim_g.param_groups:
-                    g['lr'] = lr
+            r = min(1, step / 1_000_000)
+            lr = 1e-4 * (1 - r) + 1e-5 * r
+            for g in optim_g.param_groups:
+                g['lr'] = lr
 
             accelerator.backward(loss_g)
             optim_g.step()
@@ -188,8 +187,8 @@ def train(args, chkpt_path, hp, hp_str):
             if accelerator.is_local_main_process and step % hp.log.summary_interval == 0:
                 loss_g = loss_g.item()
                 loss_d = loss_d.item()
-                writer.log_training(loss_g, loss_d, stft_loss.item(), score_loss.item(), step)
-                trainloader.set_description("g %.04f d %.04f | step %d" % (loss_g, loss_d, step))
+                writer.log_training(lr, loss_g, loss_d, stft_loss.item(), score_loss.item(), step)
+                pbar.set_description("g %.04f d %.04f | step %d" % (loss_g, loss_d, step))
 
             # if step >= max_step:
             #     break
