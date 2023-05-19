@@ -3,7 +3,10 @@
 
 # configuration
 config/*
-!config/default.yaml
+!config/default_c16.yaml
+!config/default_c32.yaml
+!config/reg_univ_32kHz_lrg.yaml
+!config/reg_upsamp_univ_32kHz_lrg.yaml
 temp-restore.yaml
 
 # logs, checkpoints

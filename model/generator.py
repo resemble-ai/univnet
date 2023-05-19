@@ -5,12 +5,18 @@ import torch.nn.functional as F
 from torch import nn
 from torchvision.transforms import Resize
 
+import numpy as np
 from omegaconf import OmegaConf
 
 from .lvcnet import LVCBlock
 
 
 MAX_WAV_VALUE = 32768.0
+
+
+def tomel(freq):
+    # NOTE HACK: I didn't check if this is the same mel scale used in this repo yet!
+    return 1127.01048 * np.log(freq / 700 + 1)
 
 
 def resize(tensor, w, h):
@@ -65,6 +71,7 @@ class Generator(nn.Module):
         self.mel_channel = hp.audio.n_mel_channels
         self.noise_dim = hp.gen.noise_dim
         self.hop_length = hp.audio.hop_length
+        self.mel_fmax = hp.audio.mel_fmax
         channel_size = hp.gen.channel_size
         kpnet_conv_size = hp.gen.kpnet_conv_size
         kpnet_hidden_channels = hp.gen.kpnet_hidden_channels
@@ -72,6 +79,7 @@ class Generator(nn.Module):
         self.mel_ae_reg = hp.gen.mel_ae_reg
         self.mel_rand_lerp_reg = hp.gen.mel_rand_lerp_reg
         self.mel_noise_reg = hp.gen.mel_noise_reg
+        self.mel_upsamp_reg = hp.gen.mel_upsamp_reg
 
         # autoencoder regularization (simulates TTS mels)
         self.mel_ae = None
@@ -116,6 +124,7 @@ class Generator(nn.Module):
         # mel augmentations
         aux_loss = 0
         if not torch.jit.is_scripting() and self.training:
+            _B, ch, T = c.shape
 
             # autoencoder regularization (simulates TTS mels)
             if self.mel_ae_reg:
@@ -125,7 +134,6 @@ class Generator(nn.Module):
 
             # random stretching (robustness to different inference mel framerates)
             if self.mel_rand_lerp_reg and random.random() > 0.8:
-                _, _, T = c.shape
                 r = random.choice([0.8, 0.9, 0.95])
                 c = resize(c, None, int(T * r))
                 c = resize(c, None, T)
@@ -133,10 +141,16 @@ class Generator(nn.Module):
             # random noise
             if self.mel_noise_reg and random.random() > 0.8:
                 # more noise at higher freqs
-                _, ch, _ = c.shape
                 arange = torch.arange(ch, 0, -1, dtype=torch.float, device=c.device)
                 noise_weight = 5 + 15 * (arange[None, :, None] / ch) ** 2
                 c = c + torch.randn_like(c) / noise_weight
+
+            # upsampling
+            if self.mel_upsamp_reg and random.random() > 0.8:
+                # always keep data up to SR of 6kHz (3kHz in spectrogram)
+                cut_low = self.freq_to_mel_index(3000)
+                cutoff = random.randint(cut_low, self.mel_channel)
+                c[:, cutoff:] = 0
 
         for res_block in self.res_stack:
             # res_block.to(z.device)
@@ -145,6 +159,10 @@ class Generator(nn.Module):
         z = self.conv_post(z)               # (B, 1, L * 256)
 
         return z, aux_loss
+
+    def freq_to_mel_index(self, freq):
+        assert 0 > freq > self.mel_fmax
+        return int(round(self.mel_channel * tomel(freq) / tomel(self.mel_fmax)))
 
     @torch.jit.unused
     def eval(self, inference=False):
